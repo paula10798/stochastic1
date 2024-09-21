@@ -206,12 +206,18 @@ s11 = build_binomial_state(s0, [1])
 
 #after second time step from lowest to highest
 s20 = build_binomial_state(s0, [0, 0])
+
+#2 paths 
 s21 = build_binomial_state(s0, [0, 1])
 s22 = build_binomial_state(s0, [1, 1])
 
 #after third time step from lowest to highest
 s20 = build_binomial_state(s0, [0, 0, 0])
+
+#3 paths
 s21 = build_binomial_state(s0, [0, 0, 1])
+
+#3 paths
 s22 = build_binomial_state(s0, [0, 1, 1])
 s23 = build_binomial_state(s0, [1, 1, 1])
 
@@ -223,13 +229,41 @@ s23 = build_binomial_state(s0, [1, 1, 1])
 #simple return for 3 months 
 r = 0.01
 q = (s0-s10)/(s11-s10)
+K = 5600
+
+#from low to high
 terminal_prices = [s20, s21, s22, s23]
-terminal_payoffs = [s if s > 5600 else 0 for s in terminal_prices]
-terminal_probabilities_q = [q**3, q**2*(1-q), q*(1-q)**2, (1-q)**3]
+terminal_probabilities_q = [q**3, 3 * q**2*(1-q), 3 * q*(1-q)**2, (1-q)**3][::-1]
+
+terminal_payoffs = [s - K if s > 5600 else 0 for s in terminal_prices]
+
+
+assert(np.sum(terminal_probabilities_q) == 1)
 
 price_call_option = np.dot(terminal_payoffs, terminal_probabilities_q)/(1 + r)
 print(price_call_option)
 # 
 
+#requirement  c
+# 
+# where is variance coming from  coming from 
 
+T = 3
+
+d1_scholes = (np.log(s0/K) + (miu_log + sigma_log**2*0.5)*T)/(miu_log * np.sqrt(T))
+d2_scholes = d1_scholes - sigma_log*np.sqrt(T)
+C_scholes  = s0 * st.norm.cdf(d1_scholes) - K* np.exp(-T*miu_log) * st.norm.cdf(d2_scholes)
+
+
+pass
+
+#Put call parity 
+#C - P = S - D * K 
+
+
+#requierement e , the sign of expected return if simulation with p is higher than simulation with q ? 
+
+#requierement f  what is call-put parity 
+
+#requirement g replication method ?? 
 
