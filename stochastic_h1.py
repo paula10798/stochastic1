@@ -1,4 +1,3 @@
-
 import yfinance as yf
 import datetime as dt
 from dateutil.relativedelta import relativedelta
@@ -6,264 +5,289 @@ import numpy as np
 import scipy.stats as st
 import matplotlib.pyplot as plt
 from scipy import stats
+import pandas as pd
+import math
+import statsmodels.api as sm
 
 from math import ceil
 from typing import List
 
-from simulation_operations import simulation_oper
-
-month_of_birth1: int = 1
-month_of_birth2: int = 1
-
-
-time_span_months_unbound = 10 * (month_of_birth1 + month_of_birth2) - month_of_birth1 * month_of_birth2
-time_span_months = min(max(time_span_months_unbound, 61), 120)
+# Calculating the sample size
+month_of_birth1: int = 3
+month_of_birth2: int = 9
+sample_size = 10 * (month_of_birth1 + month_of_birth2) - (month_of_birth1 * month_of_birth2)
+print("The sample size is", sample_size)
 
 d2 = dt.datetime(2024, 8, 31)
-d1 = d2 - relativedelta(months= time_span_months)
+d1 = d2 - relativedelta(months= sample_size)
 
+# Downloading the data 
 df = yf.download('^GSPC', start=d1.strftime("%Y-%m-%d"), end=d2.strftime("%Y-%m-%d"), interval = "1mo")
-price_series = df['Close'].values
+price_series = pd.DataFrame(df['Close'])
 
-def get_estimates(price_series):
-    """estimates for miu and sigma for simple returns """
-    n_months = len(price_series)
-    first_series = price_series[:n_months-1]
-    second_series = price_series[1:]
-    returns =  second_series/first_series - 1
-    print(returns[:3])
-    
-    return np.mean(returns), np.std(returns)
- 
-def get_log_estimates(price_series):
-    """estimates for miu and sigma for log returns """
-    
-    n_months = len(price_series)
-    first_series = price_series[:n_months-1]
-    second_series = price_series[1:]
-    returns =  np.log(second_series/first_series)
-    print(returns[:3])
-    
-    return np.mean(returns), np.std(returns)
-   
- 
-def test_significance(miu, sigma, level, reference_miu = 0):
-    """miu, sigma estimated for sample"""
-    """ return true if it's outside the confidence interval for specified level """
-    
-    z_value = (miu - reference_miu)/sigma
-    
-    low  = st.norm.ppf(level/2, loc= 0, scale= 1)
-    high = st.norm.ppf(1-level/2, loc= 0, scale= 1)
-    
-    return z_value > high or z_value < low
-     
 
-def simulate_forward_return(n_years, true_miu, true_sigma, n_simulations, return_type = "simple"):
-    """true_miu, true_sigma are monthly"""
-    """intermediate returns are stored only for simple returns"""
-    n_months = n_years * 12
-    
-    def one_month_step(prev_price: float):
-        if return_type == "simple":
-            next_price = (np.random.normal(true_miu, true_sigma, 1)  + 1) * prev_price   
-        else:
-            next_price = np.exp(np.random.normal(true_miu, true_sigma, 1)) * prev_price   
-            
-        return next_price
-    
-    def multiple_months_steps(prev_price: float, n_steps: int):
-        """ simulate n months price variation """
-    
-        if n_steps == 0:
-            return []
-        
-        returns = []
-        
-        for _ in range(n_steps):
-            next_price = one_month_step(prev_price)
-            if return_type == "simple":
-                returns.append(next_price/prev_price -1)
-            prev_price = next_price
-            
-        return np.array(returns) if len(returns) > 0  else next_price
-    
-    #start from the same value as real data
-    first_price = price_series[0] if return_type == "simple" else price_series[-1]
-    first_simulation = multiple_months_steps(first_price, n_months)
+#---------------------------------------------------------------------------#
+########### QUESTION 1 ######################################################
+#---------------------------------------------------------------------------#
 
-    
-    #each column is the arry of returns for a simulation
-    for _ in range(n_simulations - 1):
-        first_simulation = np.hstack((first_simulation, multiple_months_steps(first_price, n_months)))
-        
-    all_simulations = first_simulation
-    
-    return all_simulations
+## Requirement a 
 
-#requirement a 
-miu, sigma = get_estimates(price_series)
-print((miu, sigma))
-print(f"significant miu {test_significance(miu, sigma, 0.05, 0)}")
+# Calculating simple net returns 
+price_series['Returns'] = price_series['Close'].pct_change()
 
-#requirement b
+# Estimating mu
+mu_estimate = price_series['Returns'].mean()
+# Estimating sigma 
+sigma_estimate = price_series['Returns'].std()
 
+# Testing procedure and conclusion
+n = len(price_series)
+significance_level = 0.05
+cv_1 = st.norm.ppf(significance_level/2, loc= 0, scale= 1)     # Lower critical value of standard normal distribution
+cv_2 = st.norm.ppf(1 - significance_level/2, loc= 0, scale= 1) # Upper critical value of standard normal distribution
+mu_0 = 0  # The null hypothesis
+
+t_stat = (mu_estimate - mu_0) / (sigma_estimate / math.sqrt(n)) 
+                                 
+print(t_stat > cv_2 or z_value < cv_1)  # Conclusion is: True
+# Therefore we can reject the null hypothesis that mean returns are equal to 0  
+
+#---------------------------------------------------------------------------#
+                                 
+## Requirement b
+
+# Defining the true parameters
 margin_of_error = 0.1/200
 true_sigma = 0.06
-true_miu = 0.004
+true_mu = 0.004
 
-# margin_of_error 5% level = 1.96 * true_sigma / np.sqrt(n)
+# Following formula can be applied to help calculate the required number of years of return data 
+# margin_of_error at 5% level = 1.96 * true_sigma / np.sqrt(n)
 
-n = (1.96 * true_sigma/margin_of_error)**2
-n_years = round(n/12)
-print(f"{n_years} to achieve desired confidence interval for miu")
+# Calculating the number of years
+months_required = (1.96 * true_sigma/margin_of_error)**2
+years_required = round(months_required/12)
+print(f"{years_required} years of data is approximately required to achieve the desired confidence interval for mu")
 
+#----------------------------------------------------------------------------#
 
-#requirement c
+## Requirement c
 
-all_simulations = simulate_forward_return(n_years, true_miu, true_sigma, 20)
+# Simulation exercise
+n_months = years_required * 12
+simulation_exercise = np.zeros((n_months,1))
 
-sim_obj = simulation_oper(all_simulations)
+for t in range(1, n_months):
+    epsilon = np.random.normal(0, 1)
+    simulation_exercise[t] = true_mu + ( true_sigma * epsilon)
 
-sim_passed = sim_obj.check_validity(true_miu - margin_of_error, true_miu + margin_of_error)
+mu_simulation = simulation_exercise.mean()
+print(f"The simululated mean (mu = {mu_simulation}) falls within the confidence interval [0.35%, 0.45%]")
 
-print(f"Number of percent simulations passed {sim_passed}")
+#-----------------------------------------------------------------------------#
 
+## Requirement d
 
-#requirement d
-miu_log, sigma_log = get_log_estimates(price_series)
-print((miu, sigma))
+# Calculating log returns
+price_series['Log Returns'] = np.log(price_series['Close'] / price_series['Close'].shift(1))
+mean_log_returns = price_series['Log Returns'].mean()
+std_log_returns = price_series['Log Returns'].std()
 
-#requirement e
+# Estimating sigma, via an OLS regression
+price_series.dropna(inplace = True)
+price_series['Constant']
+y = price_series['Log Returns']
+X = price_series['Constant']
+model = sm.OLS(y, X).fit()
 
-#31 of August 2024
-start_price = price_series[-1]
-expected_forward = start_price * np.exp(miu_log)**60
+tilde_sigma = np.std(model.resid, ddof=1)
+
+# Estimating mu
+constant = model.params['Constant']
+tilde_mu = constant + ((1/2) * (tilde_sigma**2))
+
+print(f"Tilde mu is {tilde_mu} while tilde sigma is {tilde_sigma}")
+
+#-----------------------------------------------------------------------------#
+
+## Requirement e
+
+# Calculating the analytical expectation
+start_price = price_series.iloc[-1, 0]  #31 of August 2024
+expected_forward = start_price * np.exp(constant * 60)
 print(f"Expected index in 5 years {expected_forward}")
 
+expected_forward_v2 = start_price * np.exp(mean_log_returns * 60)  # Which calculates the same expected price 
 
-#requirement f
+#-----------------------------------------------------------------------------#
 
-all_log_simulations = simulate_forward_return(5, miu_log, sigma_log, 10000, return_type = "log")
+## Requirement f
 
-#sturge rule for number of bins
-plt.hist(all_log_simulations, bins=1 + ceil(np.log2(len(all_log_simulations))), edgecolor='black', alpha=0.7)
+# Simulating the stock prices 1000 times 
+log_simulations_1000 = np.zeros((61, 1000))
+log_simulations_1000[0, :] = start_price
 
-# Add labels and title
-plt.title('Histogram of Returns')
+for i in range(1000):
+    for t in range(1, 61):
+        epsilon = np.random.normal(0, 1)
+        log_simulations_1000[t, i] = log_simulations_1000[t-1 , i] * np.exp((mean_log_returns - 0.5  * std_log_returns**2) + std_log_returns * epsilon)
+
+log_simulations_1000 = pd.DataFrame(log_simulations_1000)
+
+# Distribution plot and shape
+plt.hist(log_simulations_1000[1:])
+plt.title('Distribution of Simulated Stock Prices')
 plt.xlabel('Returns')
 plt.ylabel('Frequency')
-
-# Show the plot
 plt.show()
 
+# Testing procedure and conclusion
+array_1d = log_simulations_1000.to_numpy().flatten()
+statistic, p_value = stats.kstest(array_1d, 'norm', args=(np.mean(array_1d), np.std(array_1d)))
+print(statistic)  # p-value = 0.1146
 
-statistic, p_value = stats.kstest(all_log_simulations, 'norm', args=(np.mean(all_log_simulations), np.std(all_log_simulations)))
+# Therefore, we do not reject the null hypothesis that the simulated stock returns follow a normal distribution. 
 
+#-----------------------------------------------------------------------------#
 
-#requirement g, h
+## Requirement g
 
-#for options
-split_price = 5600
+strike_price = 5600
 
-put_prices = [1 for last_price in all_log_simulations if  last_price <= split_price]
-call_prices = [1 for last_price in all_log_simulations if  last_price > split_price]
+# Digital put payoffs
+S_T = log_simulations_1000.iloc[:, -1]
+expected_payoff_digital_put = np.where(S_t < strike, 1, 0)
 
-#Arrow security prices are all the same each simulation path is equally likely, their "price" is 1/10000
-#that gives the below formulas  
-put_price = np.sum(put_prices)/(np.sum(put_prices) + np.sum(call_prices))
-call_price = 1 - put_price
+# Digital put price
+digital_put_price = np.mean(expected_payoff_digital_put)
+print(f"The price of the digital put is {digital_put_price}")
 
-print(f"put_price - call_price \n {put_price} - {call_price}")
+#---------------------------------------------------------------------------#
 
-#############  PART 2 ###########################################
+## Requirement h
 
-#maturity 3 months 
-#strike price for call option 5600 
-#3 months interest rate 1% annual 4% 
-#3 steps binomial tree 
-#s0 = 31 august 2024 
-#monthly net return 0.6% 
-#p = 0.56
+# Digital call price
+expected_payoff_digital_call = np.where(S_T > strike_price, 1, 0)
+digital_call_price = np.mean(expected_payoff_digital_call)
+print(f"The price of the digital put is {digital_call_price}")
 
-s0 = start_price
+# Sum of put and call
+total_put_call = digital_call_price + digital_put_price
+print(f"The sum of the put and call is {total_put_call}")
 
-def build_binomial_state(s: int, state_code: List, max_level = 3, u = 1.006, d = 0.994):
-    """ calculate the price of the index in this state define by state_code """  
-    """ 1 in state code is an up movement, 0 is a down movement """
-    
-    up_movements = np.sum(state_code)
-    down_movements = len(state_code) - up_movements
-    
-    
-    return s * u**up_movements * d **down_movements
+#------------------------------------------------------------------------#
+########### QUESTION 2 ###################################################
+#------------------------------------------------------------------------#
 
+## Requirement a
 
-#requierement a
-# after first time step from lowest to highest
-s10 = build_binomial_state(s0, [0])
-s11 = build_binomial_state(s0, [1])
+# Initial parameters provided
+mu = 0.006
+p = 0.56
+variance = price_series['Returns'].var() 
+N = 3                   # Number of time steps 
 
-#after second time step from lowest to highest
-s20 = build_binomial_state(s0, [0, 0])
+# Calculating u and d - by constructing a system of two equations, using the expectation and variance
+from sympy import symbols, Eq, solve
+r_u, r_d = symbols(' r_u r_d')
+eq1 = Eq((p * r_u) + ((1 - p) * r_d), mu)
+eq2 = Eq((p*(r_u - mu)**2) + ((1-p) * (r_d - mu)**2), variance)
+solutions = solve((eq1, eq2) , (r_u, r_d))
 
-#2 paths 
-s21 = build_binomial_state(s0, [0, 1])
-s22 = build_binomial_state(s0, [1, 1])
+## Two sets of solutions: 
+## (0.0476996520990794, -0.0470722844897374) 
+## (-0.0356996520990794, 0.0590722844897374)
+# Storing the first st of solutions
+solution_dict = dict(solutions[0])
+r_u = solution_dict[r_u]
+r_d = solution_dict[r_d]
 
-#after third time step from lowest to highest
-s20 = build_binomial_state(s0, [0, 0, 0])
+u = 1 + r_u
+d = 1 - r_d
+      
+# Verifying the conditions
+expected_return = (r_u * p) + ((1-p) * r_d)
+expected_variance = (p * (r_u - mu)**2) + ((1-p) * (r_d - mu)**2)
 
-#3 paths
-s21 = build_binomial_state(s0, [0, 0, 1])
+# Constructing the tree with the stock prices 
+def binomial_model(S, u, d, N):
+    stock_tree = np.zeros((N+1, N+1))
+    for i in range(N+1):
+        for j in range(i+1):
+            stock_tree[j, i] = S * (u **(i-j)) * (d ** j)
+    return stock_tree
 
-#3 paths
-s22 = build_binomial_state(s0, [0, 1, 1])
-s23 = build_binomial_state(s0, [1, 1, 1])
+binomial_model_stock = binomial_model(start_price, u, d, N)
+print(binomial_model_stock)
 
+# Plotting the binomial tree
+import pyop3  # Note... first download this package: pip install -i https://test.pypi.org/simple/ PyOptionTree
+pyop3.tree_planter.show_tree(binomial_model_stock, "Binomial Tree Price Development of Underlying Asset")
 
-#requirement b
-#by q*s11 + (1- q)* s10 = s0
-#  q*(s11-s10) + s10 = s0
+#----------------------------------------------------------------------#
 
-#simple return for 3 months 
-r = 0.01
-q = (s0-s10)/(s11-s10)
-K = 5600
+## Requirement b
 
-#from low to high
-terminal_prices = [s20, s21, s22, s23]
-terminal_probabilities_q = [q**3, 3 * q**2*(1-q), 3 * q*(1-q)**2, (1-q)**3][::-1]
+r_f = 0.01
+strike_price = 5600
 
-terminal_payoffs = [s - K if s > 5600 else 0 for s in terminal_prices]
+# Calculating the risk-neutral probabilities 
+q_u = ((1 + r_f) - d) / ( u - d)  # upward state probability
+q_d = 1 - q_u                     # downward state probability
 
+# Calculating the payoff 
+risk_neutral_payoff = (binomial_model_stock[0,1] * q_u) + (binomial_model_stock[1,1] * q_d)
+risk_neutral_return = (risk_neutral_payoff / start_price) - 1 
+print(f"Applying the risk neutral probabilities in order to calculate the expected return, we find that the risk neutral return, {risk_neutral_return}, is equal to the risk-free rate, {r_f}")
 
-assert(np.sum(terminal_probabilities_q) == 1)
+# Option price of the European Call option
+call_option_tree = np.zeros((N+1, N+1))
+for i in range(0,N):
+    call_option_tree[i, -1] = max(binomial_model_stock[i, -1] - strike_price, 0)
 
-price_call_option = np.dot(terminal_payoffs, terminal_probabilities_q)/(1 + r)
-print(price_call_option)
-# 
+# Need to figure out how these manual calculations can be performed more efficiently 
+call_option_tree[0,2] = (1 / (1 + r_f)) * ((q_u * call_option_tree[0,3]) + (q_d * call_option_tree[1,3]))
+call_option_tree[1,2] = (1 / (1 + r_f)) * ((q_u * call_option_tree[1,3]) + (q_d * call_option_tree[2,3]))
+call_option_tree[2,2] = (1 / (1 + r_f)) * ((q_u * call_option_tree[2,3]) + (q_d * call_option_tree[3,3]))
+call_option_tree[0,1] = (1 / (1 + r_f)) * ((q_u * call_option_tree[0,2]) + (q_d * call_option_tree[1,2]))
+call_option_tree[1,1] = (1 / (1 + r_f)) * ((q_u * call_option_tree[1,2]) + (q_d * call_option_tree[2,2]))
+call_option_tree[0,0] = (1 / (1 + r_f)) * ((q_u * call_option_tree[0,1]) + (q_d * call_option_tree[1,1]))
 
-#requirement  c
-# 
-# where is variance coming from  coming from 
+call_option_price = call_option_tree[0,0]
+print(f"The price of the call option should be {call_option_price}")
 
-T = 3
+pyop3.tree_planter.show_tree(call_option_tree, "Binomial Tree Price Development of the European Call Option")
 
-d1_scholes = (np.log(s0/K) + (miu_log + sigma_log**2*0.5)*T)/(miu_log * np.sqrt(T))
-d2_scholes = d1_scholes - sigma_log*np.sqrt(T)
-C_scholes  = s0 * st.norm.cdf(d1_scholes) - K* np.exp(-T*miu_log) * st.norm.cdf(d2_scholes)
+#----------------------------------------------------------------------------#
 
+## Requirement  c
 
-pass
+Nm = norm.cdf
+                 
+def BS_call_price(S_0, strike_price, sigma, T, r_f):
+    d1 = (np.log(S_0 / strike_price) + (r_f + sigma**2/2)*T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    return S_0 * Nm(d1) - strike_price * np.exp(-r_f * T)* Nm(d2)
 
-#Put call parity 
-#C - P = S - D * K 
+S_0 =
+sigma = 
+BS_call_option_price = BS_call_price(S_0, strike_price, sigma, T, r_f)
 
+print(f"The price of the call option, using the Black Scholes pricing model, is {BS_call_option_price}")
 
-#requierement e , the sign of expected return if simulation with p is higher than simulation with q ? 
+#-----------------------------------------------------------------------------#
 
-#requierement f  what is call-put parity 
+## Requirement d
 
-#requirement g replication method ?? 
+#-----------------------------------------------------------------------------#
+
+## Requierement e , the sign of expected return if simulation with p is higher than simulation with q ? 
+
+#-----------------------------------------------------------------------------#
+
+## Requirement f  what is call-put parity 
+
+#-----------------------------------------------------------------------------#
+
+## Requirement g replication method ?? 
 
